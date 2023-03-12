@@ -1,27 +1,19 @@
 {
   "bindings": [
     {
-      "authLevel": "Function",
-      "type": "HttpTrigger",
+      "name": "myBlob",
+      "type": "blobTrigger",
       "direction": "in",
-      "dataType": "binary",
-      "name": "req",
-      "methods": [
-        "post"
-      ]
+      "path": "blobcontainerdev/{name}",
+      "connection": "StorageConnection"
     },
     {
-      "type": "http",
-      "direction": "out",
-      "name": "$return"
-    },
-    {
-      "name": "storage",
-      "type": "blob",
-      "path": "{username}/{filename}",
-      "direction": "out",
-      "connection": "AzureWebJobsStorage"
-  }
-  ],
-  "scriptFile": "../dist/BlobUploadFunc/index.js"
+      "tableName": "ImageText",
+      "connection": "StorageConnection",
+      "name": "tableBinding",
+      "type": "table",
+      "direction": "out"
+    }
+
+  ]
 }

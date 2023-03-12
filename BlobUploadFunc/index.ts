@@ -1,103 +1,79 @@
-import { AzureFunction, Context, HttpRequest } from "@azure/functions";
+// ProcessImageUpload/index.js
+const { v4: uuidv4 } = require("uuid");
+const { ApiKeyCredentials } = require("@azure/ms-rest-js");
+const {
+  ComputerVisionClient,
+} = require("@azure/cognitiveservices-computervision");
+const sleep = require("util").promisify(setTimeout);
 
-import HTTP_CODES from "http-status-enum";
+const STATUS_SUCCEEDED = "succeeded";
+const STATUS_FAILED = "failed";
 
-// Multiform management
-import * as multipart from "parse-multipart";
-
-// Used to get read-only SAS token URL
-import { generateReadOnlySASUrl } from "./azure-storage-blob-sas-url";
-
-const httpTrigger: AzureFunction = async function (
-  context: Context,
-  req: HttpRequest
-): Promise<any> {
-  context.log("upload HTTP trigger function processed a request.");
-
-  // get connection string to Azure Storage from environment variables
-  // Replace with DefaultAzureCredential before moving to production
-  const storageConnectionString = process.env.AzureWebJobsStorage;
-  if (!storageConnectionString) {
-    context.res.body = `AzureWebJobsStorage env var is not defined - get Storage Connection string from Azure portal`;
-    context.res.status = HTTP_CODES.BAD_REQUEST;
-  }
-
-  // User name is the container name
-  const containerName = req.query?.username;
-  if (!containerName) {
-    context.res.body = `username is not defined`;
-    context.res.status = HTTP_CODES.BAD_REQUEST;
-  }
-
-  // `filename` is required property to use multi-part npm package
-  const fileName = req.query?.filename;
-  if (!fileName) {
-    context.res.body = `filename is not defined`;
-    context.res.status = HTTP_CODES.BAD_REQUEST;
-  }
-
-  // file content must be passed in as body
-  if (!req.body || !req.body.length) {
-    context.res.body = `Request body is not defined`;
-    context.res.status = HTTP_CODES.BAD_REQUEST;
-  }
-
-  // Content type is required to know how to parse multi-part form
-  if (!req.headers || !req.headers["content-type"]) {
-    context.res.body = `Content type is not sent in header 'content-type'`;
-    context.res.status = HTTP_CODES.BAD_REQUEST;
-  }
-
-  context.log(
-    `*** Username:${req.query?.username}, Filename:${req.query?.filename}, Content type:${req.headers["content-type"]}, Length:${req.body.length}`
-  );
-
+async function readFileUrl(context, computerVisionClient, url) {
   try {
-    const userName = req.query?.username;
-    const fileName = req.query?.filename;
-    const containerName = userName;
+    context.log(`uri = ${url}`);
 
-    // Each chunk of the file is delimited by a special string
-    const bodyBuffer = Buffer.from(req.body);
-    const boundary = multipart.getBoundary(req.headers["content-type"]);
-    const parts = multipart.Parse(bodyBuffer, boundary);
+    // To recognize text in a local image, replace client.read() with readTextInStream() as shown:
+    let result = await computerVisionClient.read(url);
 
-    // The file buffer is corrupted or incomplete ?
-    if (!parts?.length) {
-      context.res.body = `File buffer is incorrect`;
-      context.res.status = HTTP_CODES.BAD_REQUEST;
+    // Operation ID is last path segment of operationLocation (a URL)
+    let operation = result.operationLocation.split("/").slice(-1)[0];
+
+    // Wait for read recognition to complete
+    // result.status is initially undefined, since it's the result of read
+    while (result.status !== STATUS_SUCCEEDED) {
+      await sleep(1000);
+      result = await computerVisionClient.getReadResult(operation);
     }
 
-    // filename is a required property of the parse-multipart package
-    if (parts[0]?.filename)
-      console.log(`Original filename = ${parts[0]?.filename}`);
-    if (parts[0]?.type) console.log(`Content type = ${parts[0]?.type}`);
-    if (parts[0]?.data?.length) console.log(`Size = ${parts[0]?.data?.length}`);
+    let contents = "";
 
-    // Passed to Storage
-    context.bindings.storage = parts[0]?.data;
+    result.analyzeResult.readResults.map((page) => {
+      page.lines.map((line) => {
+        contents += line.text + "\n\r";
+      });
+    });
+    return contents;
+  } catch (err) {
+    console.log(err);
+  }
+}
 
-    // Get SAS token
-    const sasInfo = await generateReadOnlySASUrl(
-      process.env.AzureWebJobsStorage,
-      containerName,
-      fileName
+module.exports = async function (context, myBlob) {
+  try {
+    context.log(
+      "JavaScript blob trigger function processed blob \n Blob:",
+      context.bindingData.blobTrigger,
+      "\n Blob Size:",
+      myBlob.length,
+      "Bytes"
     );
 
-    // Returned to requestor
-    context.res.body = {
-      fileName,
-      storageAccountName: sasInfo.storageAccountName,
-      containerName,
-      url: sasInfo.accountSasTokenUrl,
-    };
+    const computerVision_ResourceKey = process.env.ComputerVisionKey;
+    const computerVision_Endpoint = process.env.ComputerVisionEndPoint;
+
+    const computerVisionClient = new ComputerVisionClient(
+      new ApiKeyCredentials({
+        inHeader: { "Ocp-Apim-Subscription-Key": computerVision_ResourceKey },
+      }),
+      computerVision_Endpoint
+    );
+
+    // URL must be full path
+    const textContext = await readFileUrl(
+      context,
+      computerVisionClient,
+      context.bindingData.uri
+    );
+
+    context.bindings.tableBinding = [];
+    context.bindings.tableBinding.push({
+      PartitionKey: "Images",
+      RowKey: uuidv4().toString(),
+      Text: textContext,
+    });
   } catch (err) {
-    context.log.error(err.message);
-    context.res.body = { error: `${err.message}` };
-    context.res.status = HTTP_CODES.INTERNAL_SERVER_ERROR;
+    context.log(err);
+    return;
   }
-
-  return context.res;
 };
-
-export default httpTrigger;
