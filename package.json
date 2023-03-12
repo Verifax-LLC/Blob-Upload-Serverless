@@ -7,9 +7,16 @@
     "watch": "tsc -w",
     "prestart": "npm run build",
     "start": "func start",
-    "test": "echo \"No tests yet...\""
+    "test": "echo \"No tests yet...\"",
+    "start-azurite": "azurite --silent --location azureStorage --debug azureStorage/debug.log"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@azure/storage-blob": "^12.13.0",
+    "@types/parse-multipart": "^1.0.0",
+    "azurite": "^3.22.0",
+    "http-status-enum": "^1.0.2",
+    "parse-multipart": "^1.0.4"
+  },
   "devDependencies": {
     "@azure/functions": "^3.5.0",
     "@types/node": "16.x",

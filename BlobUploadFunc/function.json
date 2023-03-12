@@ -1,20 +1,27 @@
 {
   "bindings": [
     {
-      "authLevel": "Anonymous",
-      "type": "httpTrigger",
+      "authLevel": "Function",
+      "type": "HttpTrigger",
       "direction": "in",
+      "dataType": "binary",
       "name": "req",
       "methods": [
-        "get",
         "post"
       ]
     },
     {
       "type": "http",
       "direction": "out",
-      "name": "res"
-    }
+      "name": "$return"
+    },
+    {
+      "name": "storage",
+      "type": "blob",
+      "path": "{username}/{filename}",
+      "direction": "out",
+      "connection": "AzureWebJobsStorage"
+  }
   ],
   "scriptFile": "../dist/BlobUploadFunc/index.js"
 }
